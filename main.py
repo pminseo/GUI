@@ -12,8 +12,6 @@ import math
 from SliderWidget import SliderWidget
 from CheckWidget import CheckWidget
 
-import io
-
 class ImageProcessing(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -88,10 +86,16 @@ class ImageProcessing(QMainWindow):
 
     def openFile(self):
         fname = self.loadFile()
-        im = Image.open(fname[0])
-        if fname[0].split(".")[-1] in ['pgm', 'ppm', 'PGM', 'PPM']: im = im.resize((256,256))
+        print(fname)
+        print(fname[0])
+        # im = Image.open(fname[0])
+        # if fname[0].split(".")[-1] in ['pgm', 'ppm', 'PGM', 'PPM']:
+        #     im = im.resize((256,256))
+            # print(type(im))
         
-        self.inImg = np.array(im)
+        # self.inImg = np.array(im)
+        self.inImg = self.fileopen(fname[0])
+        # print(self.inImg)
         w = self.inImg.shape[1]
         h = self.inImg.shape[0]
         
@@ -252,6 +256,43 @@ class ImageProcessing(QMainWindow):
     def loadFile(self):
         fname = QFileDialog.getOpenFileName(self, 'Select the First Image', './', "BMP files (*.bmp);; PGM files (*.pgm);; JPG files(*.jpg);; All files(*.*)")
         return fname
+    
+    def fileopen(self, file_name):
+        with open(file_name, 'rb') as f:
+            file_type = file_name.split('.')[-1]
+            if file_type == 'pgm' or file_type == 'PGM':
+                pgm_type = f.readline()
+                
+                wh_line = f.readline().decode('utf-8').split()
+                while wh_line[0] == '#':
+                    wh_line = f.readline().split()
+                (img_width, img_height) = [int(i) for i in wh_line]
+                print('width: {}, height: {}'.format(img_width, img_height))
+                max_value = f.readline()
+                while max_value[0] == '#':
+                    max_value = f.readline()
+                max_value = int(max_value)
+                print('PGM type: {}'.format(pgm_type.decode('utf-8')))
+                if pgm_type == b'P5\n':
+                    img_depth = 1
+                else:
+                    img_depth = 3
+            
+            elif file_type == 'raw' or file_type == 'RAW':
+                raw_data = f.readline()
+                assert len(bytearray(raw_data)) != 256*256, "Only 256 * 256 image"
+                img_width, img_height, img_depth = 256, 256, 1
+            col = []
+            for i in range(img_height):
+                row = []
+                for j in range(img_width):
+                    row.append(list(f.readline(1 * img_depth)))
+                col.append(row)
+            
+            result = np.array(col)
+            print(result.shape)
+            # result = np.array(result).squeeze(-1).transpose(1,2,0)
+        return result
     
     def add2Images(self):
         self.viewMode = 3
