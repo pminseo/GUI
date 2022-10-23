@@ -12,8 +12,6 @@ import math
 from SliderWidget import SliderWidget
 from CheckWidget import CheckWidget
 
-import io
-
 class ImageProcessing(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -88,11 +86,8 @@ class ImageProcessing(QMainWindow):
 
     def openFile(self):
         fname = self.loadFile()
-        im = Image.open(fname[0])
-        if fname[0].split(".")[-1] in ['pgm', 'ppm', 'PGM', 'PPM']: im = im.resize((256,256))
+        self.inImg = self.fileopen(fname[0]) if fname[0].split('.')[-1] in ['pgm', 'ppm', 'PGM', 'PPM', 'raw', 'RAW'] else np.array(Image.open(fname[0]))
         
-        self.inImg = np.array(im)
-        # print(self.inImg)
         w = self.inImg.shape[1]
         h = self.inImg.shape[0]
         
@@ -173,7 +168,7 @@ class ImageProcessing(QMainWindow):
         d = CheckWidget(self, self.pos())
         d.command.connect(self.rbClicked)
         
-    def rbClicked(self, buttonId):  # X = Vertical, Y = Horizontal
+    def rbClicked(self, buttonId):
         robertsX = [[0,0,-1],[0,1,0],[0,0,0]]
         robertsY = [[-1,0,0],[0,1,0],[0,0,0]]
         
@@ -253,6 +248,77 @@ class ImageProcessing(QMainWindow):
     def loadFile(self):
         fname = QFileDialog.getOpenFileName(self, 'Select the First Image', './', "BMP files (*.bmp);; PGM files (*.pgm);; JPG files(*.jpg);; All files(*.*)")
         return fname
+    
+    def read_pgm(self, file):
+        with open(file, 'rb') as pgmf:
+            pgm_type =  pgmf.readline()
+            
+            if pgm_type ==  b'P5\n':
+                len_data = 1
+            elif pgm_type ==  b'P2\n':
+                pgmf.readline()
+                len_data = 4
+            else:
+                raise TypeError()
+
+            (width, height) = [int(i) for i in pgmf.readline().split()]
+            depth = int(pgmf.readline())
+            assert depth <= 255
+
+            raster = []
+            for y in range(height):
+                row = []
+                for y in range(width):
+                    raw_dot = pgmf.read(len_data)
+                    dot = ord(raw_dot) if pgm_type == b'P5\n' else int(raw_dot)
+                    row.append(dot)
+                raster.append(row)
+        return np.array(raster, dtype=np.uint8)
+
+
+
+    def fileopen(self, file_name):
+        with open(file_name, 'rb') as f:
+            file_type = file_name.split('.')[-1]
+            if file_type == 'pgm' or file_type == 'PGM':
+                pgm_type = f.readlines()
+                for i, line in enumerate(pgm_type):
+                    if i < 3:
+                        print(line)
+                    else:
+                        print(type(line))
+                        exit()
+
+                wh_line = f.readline().decode('utf-8').split()
+                while wh_line[0] == '#':
+                    wh_line = f.readline().split()
+                (img_width, img_height) = [int(i) for i in wh_line]
+                print('width: {}, height: {}'.format(img_width, img_height))
+                max_value = f.readline()
+                while max_value[0] == '#':
+                    max_value = f.readline()
+                max_value = int(max_value)
+                print('PGM type: {}'.format(pgm_type.decode('utf-8')))
+                if pgm_type == b'P5\n':
+                    img_depth = 1
+                else:
+                    img_depth = 3
+            
+            elif file_type == 'raw' or file_type == 'RAW':
+                raw_data = f.readline()
+                assert len(bytearray(raw_data)) != 256*256, "Only 256 * 256 image"
+                img_width, img_height, img_depth = 256, 256, 1
+            col = []
+            for i in range(img_height):
+                row = []
+                for j in range(img_width):
+                    row.append(list(f.readline(1 * img_depth)))
+                col.append(row)
+            
+            result = np.array(col)
+            print(result.shape)
+            # result = np.array(result).squeeze(-1).transpose(1,2,0)
+        return result
     
     def add2Images(self):
         self.viewMode = 3
