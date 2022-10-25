@@ -5,12 +5,20 @@ from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QFileDialog
 from PyQt5.QtWidgets import QMainWindow, QMenuBar, QMenu, QAction, QStatusBar
 from PyQt5.QtGui import QPixmap, QImage
 
+import PyQt5
+import os
+qt_path= os.path.dirname(PyQt5.__file__)
+os.environ['QT_PLUGIN_PATH'] = os.path.join(qt_path, "Qt/plugins")
+
 from PIL import Image
 import numpy as np
 import math
 
 from SliderWidget import SliderWidget
 from CheckWidget import CheckWidget
+
+from Interpolation import nn_interpolate
+
 
 class ImageProcessing(QMainWindow):
     def __init__(self):
@@ -47,13 +55,15 @@ class ImageProcessing(QMainWindow):
         self.fileMenu.addAction(self.saveAct)
         self.fileMenu.addSeparator()
         self.fileMenu.addAction(self.exitAct)
-        
+                
         self.imgMenu.addAction(self.binaryAct)
         self.imgMenu.addAction(self.arithAct)
-        self.imgMenu.addAction(self.edgeAct)
+        self.imgMenu.addSeparator()
         self.imgMenu.addAction(self.histogramAct)
         self.imgMenu.addAction(self.add2imgsAct)
         self.imgMenu.addAction(self.sub2imgsAct)
+        self.imgMenu.addSeparator()
+        self.imgMenu.addAction(self.edgeAct)
         
         self.mBar.addMenu(self.fileMenu)
         self.mBar.addMenu(self.imgMenu)
@@ -86,28 +96,24 @@ class ImageProcessing(QMainWindow):
 
     def openFile(self):
         fname = self.loadFile()
+        im = self.pgm_processing(fname[0]) if fname[0].split('.')[-1] in ['pgm', 'ppm', 'raw', 'PGM', 'PPM', 'RAW'] else Image.open(fname[0])
+        self.inImg = im if isinstance(im, np.ndarray) else np.array(im, dtype=np.uint8)
 
-        # print(fname)
-        # print(fname[0])
-        # # im = Image.open(fname[0])
-        # # if fname[0].split(".")[-1] in ['pgm', 'ppm', 'PGM', 'PPM']:
-        # #     im = im.resize((256,256))
-        #     # print(type(im))
-        # 
-        # # self.inImg = np.array(im)
-        # self.inImg = self.fileopen(fname[0])
-
-        im = Image.open(fname[0])
-        if fname[0].split(".")[-1] in ['pgm', 'ppm', 'PGM', 'PPM']: im = im.resize((256,256))
-        
-        self.inImg = np.array(im)
-
-        # print(self.inImg)
         w = self.inImg.shape[1]
         h = self.inImg.shape[0]
+        # print(self.inImg.shape)
+        # print(w, h)
+        # import matplotlib.pyplot as plt
+        # plt.imshow(self.inImg)
+        # plt.show()
         
-        qImg = QImage(self.inImg.data, w, h, QImage.Format_Grayscale8)
-        self.inImgLabel.setPixmap(QPixmap.fromImage(qImg))
+        self.setviewMode(w, h)
+        qImg = QImage(self.inImg.data, w, h, QImage.Format_Grayscale8) if self.inImg.shape[-1] != 3 else QImage(self.inImg.data, w, h,QImage.Format_RGB888)
+        
+        pixmap = QPixmap.fromImage(qImg).copy()
+        self.inImgLabel.setPixmap(pixmap)
+        # self.inImgLabel.resize(pixmap.width(), pixmap.height())
+        self.outImgLabel.setPixmap(QPixmap())
         
         self.sBar.showMessage('File Open : "' + fname[0] + '"')
         
@@ -131,18 +137,17 @@ class ImageProcessing(QMainWindow):
         w = self.inImg.shape[1]
         h = self.inImg.shape[0]
             
-        if self.viewMode != 2:
-            self.viewMode = 2
-            self.setviewMode(w,h)
+        if self.viewMode != 2: self.viewMode = 2
+        self.setviewMode(w,h)
         
         self.outImg = self.inImg.copy()
         
-        for y in range(h):
-            for x in range(w):
-                if self.outImg[y][x] > 128:
-                    self.outImg[y][x] = 255
+        for i in range(h):
+            for j in range(w):
+                if self.outImg[i][j] > 128:
+                    self.outImg[i][j] = 255
                 else:
-                    self.outImg[y][x] = 0
+                    self.outImg[i][j] = 0
     
         qImg = QImage(self.outImg.data, w,h, QImage.Format_Grayscale8)
         self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
@@ -151,9 +156,8 @@ class ImageProcessing(QMainWindow):
         w = self.inImg.shape[1]
         h = self.inImg.shape[0]
         
-        if self.viewMode != 2:
-            self.viewMode = 2
-            self.setviewMode(w,h)
+        if self.viewMode != 2: self.viewMode = 2
+        self.setviewMode(w,h)
             
         qImg = QImage(self.inImg.data, w,h, QImage.Format_Grayscale8)
         self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
@@ -173,9 +177,8 @@ class ImageProcessing(QMainWindow):
         w = self.inImg.shape[1]
         h = self.inImg.shape[0]
         
-        if self.viewMode != 2:
-            self.viewMode = 2
-            self.setviewMode(w,h)
+        if self.viewMode != 2: self.viewMode = 2
+        self.setviewMode(w,h)
             
         qImg = QImage(self.inImg.data, w,h, QImage.Format_Grayscale8)
         self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
@@ -183,7 +186,7 @@ class ImageProcessing(QMainWindow):
         d = CheckWidget(self, self.pos())
         d.command.connect(self.rbClicked)
         
-    def rbClicked(self, buttonId):  # X = Vertical, Y = Horizontal
+    def rbClicked(self, buttonId):
         robertsX = [[0,0,-1],[0,1,0],[0,0,0]]
         robertsY = [[-1,0,0],[0,1,0],[0,0,0]]
         
@@ -232,30 +235,31 @@ class ImageProcessing(QMainWindow):
         w = self.inImg.shape[1]
         h = self.inImg.shape[0]
             
-        if self.viewMode != 2:
-            self.viewMode = 2
-            self.setviewMode(w,h)
+        if self.viewMode != 2: self.viewMode = 2
+        self.setviewMode(w,h)
+
         self.outImg = self.inImg.copy()
         hist = [0 for i in range(256)]
         acc_hist = 0
-        for j in range(h):
-            for i in range(w):
+        for i in range(h):
+            for j in range(w):
                 k = self.inImg[i][j]
                 hist[k] += 1
         cumulativeSum = []
         for i in range(256):
             acc_hist += hist[i]
             cumulativeSum.append(acc_hist)
-        for j in range(h):
-            for i in range(w):
+        for i in range(h):
+            for j in range(w):
                 k = self.inImg[i][j]
-                self.outImg[i][j] = cumulativeSum[k]/(256*256)*255
+                self.outImg[i][j] = cumulativeSum[k] / (256 * 256) * 255
                 
         qImg = QImage(self.outImg.data, w,h, QImage.Format_Grayscale8)
         self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
         
     def setviewMode(self, w, h):
-        self.setFixedSize((w + 14) * self.viewMode, h + 44)
+        cw, cy = (w + 28) * self.viewMode, h + 44
+        self.setFixedSize(cw, cy)
         if self.viewMode == 2:
             self.inImg2 = 0
             self.inImgLabel2.setPixmap(QPixmap())
@@ -264,61 +268,68 @@ class ImageProcessing(QMainWindow):
         fname = QFileDialog.getOpenFileName(self, 'Select the First Image', './', "BMP files (*.bmp);; PGM files (*.pgm);; JPG files(*.jpg);; All files(*.*)")
         return fname
     
-    def fileopen(self, file_name):
+    def pgm_processing(self, file_name):
         with open(file_name, 'rb') as f:
             file_type = file_name.split('.')[-1]
             if file_type == 'pgm' or file_type == 'PGM':
                 pgm_type = f.readline()
-                
                 wh_line = f.readline().decode('utf-8').split()
                 while wh_line[0] == '#':
                     wh_line = f.readline().split()
                 (img_width, img_height) = [int(i) for i in wh_line]
-                print('width: {}, height: {}'.format(img_width, img_height))
+                # print('width: {}, height: {}'.format(img_width, img_height))
                 max_value = f.readline()
                 while max_value[0] == '#':
                     max_value = f.readline()
                 max_value = int(max_value)
-                print('PGM type: {}'.format(pgm_type.decode('utf-8')))
+                # print('PGM type: {}'.format(pgm_type.decode('utf-8')))
                 if pgm_type == b'P5\n':
                     img_depth = 1
                 else:
-                    img_depth = 3
+                    img_depth = 4
             
             elif file_type == 'raw' or file_type == 'RAW':
                 raw_data = f.readline()
                 assert len(bytearray(raw_data)) != 256*256, "Only 256 * 256 image"
                 img_width, img_height, img_depth = 256, 256, 1
+
             col = []
-            for i in range(img_height):
+            for _ in range(img_height):
                 row = []
-                for j in range(img_width):
-                    row.append(list(f.readline(1 * img_depth)))
+                for _ in range(img_width):
+                    tmp = f.readline(1 * img_depth)
+                    dot = ord(tmp) if pgm_type == b'P5\n' else int(tmp)
+                    row.append(dot)
                 col.append(row)
-            
-            result = np.array(col)
-            print(result.shape)
-            # result = np.array(result).squeeze(-1).transpose(1,2,0)
+            result = np.array(col, dtype=np.uint8)
+            # print(result.shape)
         return result
     
     def add2Images(self):
         self.viewMode = 3
         fname = self.loadFile()
-        im = Image.open(fname[0])
-        if fname[0].split(".")[-1] in ['pgm', 'ppm', 'PGM', 'PPM']: im = im.resize((256,256))
+        im = self.fileopen(fname[0]) if fname[0].split('.')[-1] in ['pgm', 'ppm', 'raw', 'PGM', 'PPM', 'RAW'] else Image.open(fname[0])
+        self.inImg = np.array(im) if not isinstance(im, np.ndarray) else im
 
-        self.inImg = np.array(im)
         w = self.inImg.shape[1]
         h = self.inImg.shape[0]
+        # print(w, h)
+
         self.setviewMode(w,h)
         qImg = QImage(self.inImg.data, w, h, QImage.Format_Grayscale8)
         self.inImgLabel.setPixmap(QPixmap.fromImage(qImg))
         
         fname2 = self.loadFile()
-        im2 = Image.open(fname2[0])
-        if w != im2.size[0] or h != im2.size[1]:
-            im2 = im2.resize((w,h))
-        self.inImg2 = np.array(im2)
+        im2 = self.fileopen(fname2[0]) if fname2[0].split('.')[-1] in ['pgm', 'ppm', 'raw', 'PGM', 'PPM', 'RAW'] else Image.open(fname2[0])
+        self.inImg2 = np.array(im2) if not isinstance(im2, np.ndarray) else im2
+        
+        # print(self.inImg.shape, self.inImg2.shape)
+        if self.inImg.shape != self.inImg2.shape: 
+            self.inImg2 = nn_interpolate(self.inImg2, self.inImg.shape)
+        # print(self.inImg.shape, self.inImg2.shape)
+        # im2 = Image.open(fname2[0])
+        # if w != im2.size[0] or h != im2.size[1]:
+        #     im2 = im2.resize((w,h))
         
         qImg2 = QImage(self.inImg2.data, w, h, QImage.Format_Grayscale8)
         self.inImgLabel2.setPixmap(QPixmap.fromImage(qImg2))
