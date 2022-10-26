@@ -45,4 +45,78 @@ class CheckWidget(QWidget):
         
     def rbChecked(self):
         self.command.emit(self.bg.checkedId())
+
+
+class SharpeningWidget(QWidget):
+    command = pyqtSignal(int)
     
+    def __init__(self, parent, mainWindowPos):
+        super(SharpeningWidget, self).__init__(parent, Qt.Window)
+        self.setAttribute(Qt.WA_DeleteOnClose)
+        
+        self.mainWindowPos = mainWindowPos
+        self.bgWidget = QWidget(self)
+        self.bg = QButtonGroup(self.bgWidget)
+        
+        self.rb1 = QRadioButton("Mask1", self.bgWidget)
+        self.rb2 = QRadioButton("Mask2", self.bgWidget)
+        
+        self.initUI()
+        
+    def initUI(self):
+        self.rb1.move(10, 10)
+        self.rb2.move(10, 40)
+        
+        self.bg.addButton(self.rb1, 0)
+        self.bg.addButton(self.rb2, 1)
+        
+        self.bg.buttonClicked.connect(self.rbChecked)
+        
+        vbox = QVBoxLayout()
+        vbox.addWidget(self.rb1)
+        vbox.addWidget(self.rb2)
+        self.setLayout(vbox)
+        
+        self.setWindowTitle("Sharpening")
+        self.move(self.mainWindowPos.x() + 540, self.mainWindowPos.y())
+        self.show()
+        
+    def rbChecked(self):
+        self.command.emit(self.bg.checkedId())
+
+class AveragingWidget(QWidget):
+    command = pyqtSignal(int)
+    
+    def __init__(self, parent, mainWindowPos):
+        super(AveragingWidget, self).__init__(parent, Qt.Window)
+        self.setAttribute(Qt.WA_DeleteOnClose)
+        
+        self.mainWindowPos = mainWindowPos
+        self.bgWidget = QWidget(self)
+        self.bg = QButtonGroup(self.bgWidget)
+        
+        self.rb1 = QRadioButton("3x3", self.bgWidget)
+        self.rb2 = QRadioButton("5x5", self.bgWidget)
+        
+        self.initUI()
+        
+    def initUI(self):
+        self.rb1.move(10, 10)
+        self.rb2.move(10, 40)
+        
+        self.bg.addButton(self.rb1, 0)
+        self.bg.addButton(self.rb2, 1)
+        
+        self.bg.buttonClicked.connect(self.rbChecked)
+        
+        vbox = QVBoxLayout()
+        vbox.addWidget(self.rb1)
+        vbox.addWidget(self.rb2)
+        self.setLayout(vbox)
+        
+        self.setWindowTitle("Averaging")
+        self.move(self.mainWindowPos.x() + 540, self.mainWindowPos.y())
+        self.show()
+        
+    def rbChecked(self):
+        self.command.emit(self.bg.checkedId())

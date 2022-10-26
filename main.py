@@ -101,7 +101,6 @@ class ImageProcessing(QMainWindow):
         if fname[0].split(".")[-1] in ['pgm', 'ppm', 'PGM', 'PPM']: im = im.resize((256,256))
         
         self.inImg = np.array(im)
-
         # print(self.inImg)
         w = self.inImg.shape[1]
         h = self.inImg.shape[0]

@@ -1,4 +1,3 @@
-
 # from PIL import Image
 # import numpy as np
 # import matplotlib.pyplot as plt
@@ -53,3 +52,4 @@ print(resp2.shape)
 print(resp5.shape)
 print(np.all(resp5 == resp2))
 
+print(np.all(resp5 == resp2))
