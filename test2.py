@@ -5,6 +5,11 @@ from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QFileDialog
 from PyQt5.QtWidgets import QMainWindow, QMenuBar, QMenu, QAction, QStatusBar
 from PyQt5.QtGui import QPixmap, QImage
 
+import PyQt5
+import os
+qt_path= os.path.dirname(PyQt5.__file__)
+os.environ['QT_PLUGIN_PATH'] = os.path.join(qt_path, "Qt/plugins")
+
 from PIL import Image
 import numpy as np
 import math
@@ -50,13 +55,15 @@ class ImageProcessing(QMainWindow):
         self.fileMenu.addAction(self.saveAct)
         self.fileMenu.addSeparator()
         self.fileMenu.addAction(self.exitAct)
-        
+                
         self.imgMenu.addAction(self.binaryAct)
         self.imgMenu.addAction(self.arithAct)
-        self.imgMenu.addAction(self.edgeAct)
+        self.imgMenu.addSeparator()
         self.imgMenu.addAction(self.histogramAct)
         self.imgMenu.addAction(self.add2imgsAct)
         self.imgMenu.addAction(self.sub2imgsAct)
+        self.imgMenu.addSeparator()
+        self.imgMenu.addAction(self.edgeAct)
         
         self.mBar.addMenu(self.fileMenu)
         self.mBar.addMenu(self.imgMenu)
@@ -89,14 +96,22 @@ class ImageProcessing(QMainWindow):
 
     def openFile(self):
         fname = self.loadFile()
-        im = self.fileopen(fname[0]) if fname[0].split('.')[-1] in ['pgm', 'ppm', 'raw', 'PGM', 'PPM', 'RAW'] else Image.open(fname[0])
-        self.inImg = np.array(im) if not isinstance(im, np.ndarray) else im
+        im = self.pgm_processing(fname[0]) if fname[0].split('.')[-1] in ['pgm', 'ppm', 'raw', 'PGM', 'PPM', 'RAW'] else Image.open(fname[0])
+        self.inImg = im if isinstance(im, np.ndarray) else np.asarray(im, dtype=np.uint8)
 
         w = self.inImg.shape[1]
         h = self.inImg.shape[0]
-        
-        qImg = QImage(self.inImg.data, w, h, QImage.Format_Grayscale8)
-        self.inImgLabel.setPixmap(QPixmap.fromImage(qImg))
+        # print(self.inImg.shape)
+        # print(w, h)
+        # import matplotlib.pyplot as plt
+        # plt.imshow(self.inImg,cmap="gray")
+        # plt.show()
+        self.setviewMode(w, h)
+        qImg = QImage(self.inImg.data, w, h, int(self.inImg.nbytes/h), QImage.Format_Grayscale8) if self.inImg.shape[-1] != 3 else QImage(self.inImg.data, w, h, int(self.inImg.nbytes/h), QImage.Format_RGB888)
+
+        pixmap = QPixmap.fromImage(qImg)
+        self.inImgLabel.setPixmap(pixmap)
+        # self.inImgLabel.resize(pixmap.width(), pixmap.height())
         self.outImgLabel.setPixmap(QPixmap())
         
         self.sBar.showMessage('File Open : "' + fname[0] + '"')
@@ -252,7 +267,7 @@ class ImageProcessing(QMainWindow):
         fname = QFileDialog.getOpenFileName(self, 'Select the First Image', './', "BMP files (*.bmp);; PGM files (*.pgm);; JPG files(*.jpg);; All files(*.*)")
         return fname
     
-    def fileopen(self, file_name):
+    def pgm_processing(self, file_name):
         with open(file_name, 'rb') as f:
             file_type = file_name.split('.')[-1]
             if file_type == 'pgm' or file_type == 'PGM':
