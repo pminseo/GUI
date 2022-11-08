@@ -13,7 +13,7 @@ from SliderWidget import SliderWidget
 from CheckWidget import CheckWidget, SharpeningWidget, AveragingWidget
 
 from Interpolation import nn_interpolate
-
+from DFS import DFS
 
 class ImageProcessing(QMainWindow):
     def __init__(self):
@@ -41,8 +41,6 @@ class ImageProcessing(QMainWindow):
         self.openingAct = QAction("Opening")
         self.closingAct = QAction("Closing")
 
-
-        self.visited = [False]
         
         self.imgArea = QWidget()
         self.inImg = 0
@@ -437,7 +435,9 @@ class ImageProcessing(QMainWindow):
         self.CopyResult2Input()
         self.dilation(viewOutput=True)
 
-        self.countObjects()
+        d = DFS(self.outImg)
+        objCount = d.getObjectCount()
+        print(objCount)
 
     def closing(self):
         self.binarization(viewOutput=False)
@@ -460,43 +460,17 @@ class ImageProcessing(QMainWindow):
         self.CopyResult2Input()
         self.erosion(viewOutput=True)
 
-        self.countObjects()
-
-    def countObjects(self):
-        count = 0
-        w, h = self.outImg.shape[1], self.outImg.shape[0]
-        self.visited = [[False for _ in range(w)] for _ in range(h)]
-        
-        for i in range(h):
-            for j in range(w):
-                if self.outImg[i][j] == 255 and self.visited[i][j] == False:
-                    count += 1
-                    self.visited[i][j] = True
-                    self.dfs(i-1, j)
-                    self.dfs(i+1, j)
-                    self.dfs(i, j-1)
-                    self.dfs(i, j+1)
-        print(count)
-    
-    def dfs(self, i, j):
-        if i < 0 or i >= self.outImg.shape[0] or j < 0 or j >= self.outImg.shape[1] or self.visited[i][j] == True:
-            return
-        if self.outImg[i][j] == 255:
-            self.visited[i][j] = True
-            self.dfs(i-1, j)
-            self.dfs(i+1, j)
-            self.dfs(i, j-1)
-            self.dfs(i, j+1)
-        return
-
+        d = DFS(self.outImg)
+        objCount = d.getObjectCount()
+        print(objCount)
 
     def medianFiltering(self):
         w = self.inImg.shape[1]
         h = self.inImg.shape[0]
-            
+
         if self.viewMode != 2: self.viewMode = 2
         self.setviewMode(w,h)
-        
+
         self.outImg = np.zeros((h,w), dtype=np.uint8)
 
         for i in range(h):
@@ -507,7 +481,7 @@ class ImageProcessing(QMainWindow):
                     temp = self.inImg[i-1:i+2, j-1:j+2]
                     temp = np.sort(np.ravel(temp, order='C'))
                     self.outImg[i][j] = temp[4]
-        
+
         qImg = QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_Grayscale8) if self.outImg.shape[-1] != 3 else QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_RGB888)
         self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
     
