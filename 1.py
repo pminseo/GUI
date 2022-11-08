@@ -1,55 +1,29 @@
-# from PIL import Image
-# import numpy as np
-# import matplotlib.pyplot as plt
-# 
-# # file = '/home/msis/Desktop/my/Digital_Image_Processing/rocket launch.pgm'
-# file = '/home/msis/Desktop/my/Digital_Image_Processing/images/rocket launch.pgm'
-# # file = '/home/msis/Desktop/my/Digital_Image_Processing/images/rocket launch2.pgm'
-# 
-# img = Image.open(file)
-# im = np.array(img)
-# 
-# plt.imshow(im)
-# plt.show()
-
 import numpy as np
 
-def read_pgm(pgmf):
-    """Return a raster of integers from a PGM as a list of lists."""
-    pgm_type =  pgmf.readline()
-    if pgm_type ==  b'P5\n':
-        len_data = 1
-    elif pgm_type ==  b'P2\n':
-        pgmf.readline()
-        len_data = 4
-    else:
-        raise TypeError()
+def gaussianFiltering(*args):
+    gaussianfilter = getGaussianfilter(kernel_size = 5, sigma = 3)
+    print(gaussianfilter)
+    
+    pass
 
-    (width, height) = [int(i) for i in pgmf.readline().split()]
-    depth = int(pgmf.readline())
-    assert depth <= 255
+def getGaussianfilter(**kargs):
+    kernel_size = kargs["kernel_size"] if "kernel_size" in kargs else 5
+    sigma = kargs["sigma"] if "sigma" in kargs else 3
+    array = np.arange((kernel_size // 2) * (-1), (kernel_size // 2) + 1, dtype=np.float32)
+    arr = np.zeros((kernel_size, kernel_size))
 
-    raster = []
-    for y in range(height):
-        row = []
-        for y in range(width):
-            raw_dot = pgmf.read(len_data)
-            dot = ord(raw_dot) if pgm_type == b'P5\n' else int(raw_dot)
-            row.append(dot)
-        raster.append(row)
-    return raster
+    for i in range(kernel_size):
+        for j in range(kernel_size):
+            arr[i, j] = array[i]**2 + array[j]**2
 
-with open('./rocket launch.pgm', 'rb') as f:
-    resp2 = read_pgm(f)
-    resp2 = np.array(resp2)
+    gaussianFilter = np.zeros((kernel_size, kernel_size))
 
-with open('./rocket launch2.pgm', 'rb') as f:
-    resp5 = read_pgm(f)
-    resp5 = np.array(resp5)
+    for i in range(kernel_size):
+        for j in range(kernel_size):
+            gaussianFilter[i, j] = np.exp(-arr[i, j] / (2 * sigma**2))
+    gaussianFilter /= gaussianFilter.sum()
+    return gaussianFilter
 
-print(resp2)
-print(resp2.shape)
-print(resp5.shape)
-print(np.all(resp5 == resp2))
 
-print(np.all(resp5 == resp2))
+if __name__ == "__main__":
+    gaussianFiltering()

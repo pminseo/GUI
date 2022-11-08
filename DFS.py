@@ -1,8 +1,7 @@
 import numpy as np
 
 class DFS():
-    def __init__(self, img):
-        
+    def __init__(self, img):        
         self.img = img
         self.width = img.shape[1]
         self.height = img.shape[0]

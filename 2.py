@@ -36,6 +36,7 @@ class ImageProcessing(QMainWindow):
         self.sharpAct = QAction("Sharpening")
         self.avgmaskAct = QAction("Averaging")
         self.medianAct = QAction("Median Filtering")
+        self.gaussianAct = QAction("Gaussian Filtering")
         self.erosionAct = QAction("Erosion")
         self.dilationAct = QAction("Dilation")
         self.openingAct = QAction("Opening")
@@ -70,6 +71,7 @@ class ImageProcessing(QMainWindow):
         self.imgMenu.addAction(self.sharpAct)
         self.imgMenu.addAction(self.avgmaskAct)
         self.imgMenu.addAction(self.medianAct)
+        self.imgMenu.addAction(self.gaussianAct)
         self.imgMenu.addSeparator()
         self.imgMenu.addAction(self.erosionAct)
         self.imgMenu.addAction(self.dilationAct)
@@ -94,6 +96,7 @@ class ImageProcessing(QMainWindow):
         self.sharpAct.triggered.connect(self.sharpening)
         self.avgmaskAct.triggered.connect(self.averaging)
         self.medianAct.triggered.connect(self.medianFiltering)
+        self.gaussianAct.triggered.connect(self.gaussianFiltering)
         self.erosionAct.triggered.connect(self.erosion)
         self.dilationAct.triggered.connect(self.dilation)
         self.openingAct.triggered.connect(self.opening)
@@ -363,7 +366,8 @@ class ImageProcessing(QMainWindow):
                 
         qImg = QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_Grayscale8) if self.outImg.shape[-1] != 3 else QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_RGB888)
         self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
-    
+
+
     def erosion(self, *args,**kargs):
         viewOutput = kargs["viewOutput"] if "viewOutput" in kargs else True
         
@@ -485,7 +489,47 @@ class ImageProcessing(QMainWindow):
         qImg = QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_Grayscale8) if self.outImg.shape[-1] != 3 else QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_RGB888)
         self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
     
-    
+    def gaussianFiltering(self):
+        w = self.inImg.shape[1]
+        h = self.inImg.shape[0]
+        if self.viewMode != 2: self.viewMode = 2
+        self.setviewMode(w,h)
+        self.outImg = np.zeros((h,w), dtype=np.uint8)
+
+        gaussianfilter = self.getGaussianfilter(kernel_size = 3, sigma = 1)
+        for i in range(h):
+            for j in range(w):
+                if i == 0 or i == h-1 or j == 0 or j == w-1:
+                    self.outImg[i][j] = self.inImg[i][j]
+                else:
+                    temp = np.sum(np.multiply(gaussianfilter, self.inImg[i-1:i+2, j-1:j+2]))
+                    if temp > 255:
+                        temp = 255
+                    if temp < 0:
+                        temp = 0
+                    self.outImg[i][j] = temp
+        qImg = QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_Grayscale8) if self.outImg.shape[-1] != 3 else QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_RGB888)
+        self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
+
+    def getGaussianfilter(self, *args, **kargs):
+        kernel_size = kargs["kernel_size"] if "kernel_size" in kargs else 5
+        sigma = kargs["sigma"] if "sigma" in kargs else 3
+        array = np.arange((kernel_size // 2) * (-1), (kernel_size // 2) + 1, dtype=np.float32)
+        arr = np.zeros((kernel_size, kernel_size))
+
+        for i in range(kernel_size):
+            for j in range(kernel_size):
+                arr[i, j] = array[i]**2 + array[j]**2
+
+        gaussianFilter = np.zeros((kernel_size, kernel_size))
+
+        for i in range(kernel_size):
+            for j in range(kernel_size):
+                gaussianFilter[i, j] = np.exp(-arr[i, j] / (2 * sigma**2))
+        gaussianFilter /= gaussianFilter.sum()
+
+        return gaussianFilter
+
     def setviewMode(self, w, h):
         cw, cy = int(1.1 * w) * self.viewMode, int(1.2 * h)
         self.setFixedSize(cw, cy)
