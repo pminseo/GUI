@@ -13,11 +13,7 @@ class DFS():
             for j in range(self.width):
                 if self.img[i][j] == 255 and self.visited[i][j] is False:
                     self.objCount += 1
-                    self.visited[i][j] = True
-                    self.dfs(i-1, j)
-                    self.dfs(i+1, j)
-                    self.dfs(i, j-1)
-                    self.dfs(i, j+1)
+                    self.dfs(i, j)
         
         return self.objCount
 
@@ -30,3 +26,4 @@ class DFS():
             self.dfs(x+1, y)
             self.dfs(x, y-1)
             self.dfs(x, y+1)
+
