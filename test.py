@@ -10,7 +10,10 @@ import numpy as np
 import math
 
 from SliderWidget import SliderWidget
-from CheckWidget import CheckWidget
+from CheckWidget import CheckWidget, SharpeningWidget, AveragingWidget
+
+from Interpolation import nn_interpolate
+from DFS import DFS
 
 class ImageProcessing(QMainWindow):
     def __init__(self):
@@ -30,6 +33,20 @@ class ImageProcessing(QMainWindow):
         self.histogramAct = QAction("Hostogram Equalization")
         self.add2imgsAct = QAction("Addition of two images")
         self.sub2imgsAct = QAction("Subtraction of two images")
+        self.sharpAct = QAction("Sharpening")
+        self.avgmaskAct = QAction("Averaging")
+        self.medianAct = QAction("Median Filtering")
+        self.gaussianAct = QAction("Gaussian Filtering")
+        self.erosionAct = QAction("Erosion")
+        self.dilationAct = QAction("Dilation")
+        self.openingAct = QAction("Opening")
+        self.closingAct = QAction("Closing")
+        ###
+        self.upsamplingAct = QAction("Upsampling")
+        self.upsamplingLerpAct = QAction("Upsampling with interpolation")
+        self.downsamplingAct = QAction("Downsampling")
+        self.decimationAct = QAction("Decimation")
+        ###
         
         self.imgArea = QWidget()
         self.inImg = 0
@@ -47,13 +64,31 @@ class ImageProcessing(QMainWindow):
         self.fileMenu.addAction(self.saveAct)
         self.fileMenu.addSeparator()
         self.fileMenu.addAction(self.exitAct)
-        
+                
         self.imgMenu.addAction(self.binaryAct)
         self.imgMenu.addAction(self.arithAct)
-        self.imgMenu.addAction(self.edgeAct)
+        self.imgMenu.addSeparator()
         self.imgMenu.addAction(self.histogramAct)
         self.imgMenu.addAction(self.add2imgsAct)
         self.imgMenu.addAction(self.sub2imgsAct)
+        self.imgMenu.addSeparator()
+        self.imgMenu.addAction(self.edgeAct)
+        self.imgMenu.addAction(self.sharpAct)
+        self.imgMenu.addAction(self.avgmaskAct)
+        self.imgMenu.addAction(self.medianAct)
+        self.imgMenu.addAction(self.gaussianAct)
+        self.imgMenu.addSeparator()
+        self.imgMenu.addAction(self.erosionAct)
+        self.imgMenu.addAction(self.dilationAct)
+        self.imgMenu.addAction(self.openingAct)
+        self.imgMenu.addAction(self.closingAct)
+        self.imgMenu.addSeparator()
+        self.imgMenu.addAction(self.upsamplingAct)
+        self.imgMenu.addAction(self.upsamplingLerpAct)
+        self.imgMenu.addAction(self.downsamplingAct)
+        self.imgMenu.addAction(self.decimationAct)
+
+        
         
         self.mBar.addMenu(self.fileMenu)
         self.mBar.addMenu(self.imgMenu)
@@ -68,6 +103,19 @@ class ImageProcessing(QMainWindow):
         self.histogramAct.triggered.connect(self.histogramEqual)
         self.add2imgsAct.triggered.connect(self.add2Images)
         self.sub2imgsAct.triggered.connect(self.sub2Images)
+        self.sharpAct.triggered.connect(self.sharpening)
+        self.avgmaskAct.triggered.connect(self.averaging)
+        self.medianAct.triggered.connect(self.medianFiltering)
+        self.gaussianAct.triggered.connect(self.gaussianFiltering)
+        self.erosionAct.triggered.connect(self.erosion)
+        self.dilationAct.triggered.connect(self.dilation)
+        self.openingAct.triggered.connect(self.opening)
+        self.closingAct.triggered.connect(self.closing)
+
+        self.upsamplingAct.triggered.connect(self.UpSampling)
+        self.upsamplingLerpAct.triggered.connect(self.UpsamplingLerp)
+        self.downsamplingAct.triggered.connect(self.DownSampling)
+        self.decimationAct.triggered.connect(self.Decimation)
         
         hbox = QHBoxLayout()
         hbox.addWidget(self.inImgLabel)
@@ -86,13 +134,18 @@ class ImageProcessing(QMainWindow):
 
     def openFile(self):
         fname = self.loadFile()
-        self.inImg = self.fileopen(fname[0]) if fname[0].split('.')[-1] in ['pgm', 'ppm', 'PGM', 'PPM', 'raw', 'RAW'] else np.array(Image.open(fname[0]))
-        
+        im = self.pgm_processing(fname[0]) if fname[0].split('.')[-1] in ['pgm', 'ppm', 'raw', 'PGM', 'PPM', 'RAW'] else Image.open(fname[0])
+        self.inImg = im if isinstance(im, np.ndarray) else np.array(im, dtype=np.uint8)
+
         w = self.inImg.shape[1]
         h = self.inImg.shape[0]
         
-        qImg = QImage(self.inImg.data, w, h, QImage.Format_Grayscale8)
-        self.inImgLabel.setPixmap(QPixmap.fromImage(qImg))
+        self.setviewMode(w, h)
+        qImg = QImage(self.inImg.data, w, h, int(self.inImg.nbytes/h), QImage.Format_Grayscale8) if self.inImg.shape[-1] != 3 else QImage(self.inImg.data, w, h, int(self.inImg.nbytes/h), QImage.Format_RGB888)
+
+        pixmap = QPixmap.fromImage(qImg)
+        self.inImgLabel.setPixmap(pixmap)
+        self.outImgLabel.setPixmap(QPixmap())
         
         self.sBar.showMessage('File Open : "' + fname[0] + '"')
         
@@ -112,35 +165,49 @@ class ImageProcessing(QMainWindow):
     def quitApp(self):
         self.close()
         
-    def binarization(self):
+    def binarization(self, *args, **kargs):
+        viewOutput = kargs["viewOutput"] if "viewOutput" in kargs else True
+        
         w = self.inImg.shape[1]
         h = self.inImg.shape[0]
+        if self.inImg.shape[-1] == 3: c = self.inImg.shape[-1]
+        if self.viewMode != 2: self.viewMode = 2
+        self.setviewMode(w, h)
+
+        self.outImg = np.zeros((h,w), dtype=np.uint8)
+        
+        if self.inImg.shape[-1] != 3:
+            for i in range(h):
+                for j in range(w):
+                    if self.inImg[i][j] > 128:
+                        self.outImg[i][j] = 255
+                    else:
+                        self.outImg[i][j] = 0
+        else:
+            for i in range(h):
+                for j in range(w):
+                    if np.sum(self.inImg[i][j]) > 128*3:
+                        self.outImg[i][j] = 255
+                    else:
+                        self.outImg[i][j] = 0
+
+        if viewOutput:
+            qImg = QImage(self.outImg.data, w,h,int(self.outImg.nbytes/h), QImage.Format_Grayscale8)
+            self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
+        else:
+            self.inImg = self.outImg.copy()
+            qImg = QImage(self.inImg.data, w,h,int(self.inImg.nbytes/h), QImage.Format_Grayscale8)
+            self.inImgLabel.setPixmap(QPixmap.fromImage(qImg))
             
-        if self.viewMode != 2:
-            self.viewMode = 2
-            self.setviewMode(w,h)
-        
-        self.outImg = self.inImg.copy()
-        
-        for y in range(h):
-            for x in range(w):
-                if self.outImg[y][x] > 128:
-                    self.outImg[y][x] = 255
-                else:
-                    self.outImg[y][x] = 0
-    
-        qImg = QImage(self.outImg.data, w,h, QImage.Format_Grayscale8)
-        self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
         
     def arithmetic(self):
         w = self.inImg.shape[1]
         h = self.inImg.shape[0]
         
-        if self.viewMode != 2:
-            self.viewMode = 2
-            self.setviewMode(w,h)
+        if self.viewMode != 2: self.viewMode = 2
+        self.setviewMode(w,h)
             
-        qImg = QImage(self.inImg.data, w,h, QImage.Format_Grayscale8)
+        qImg = QImage(self.inImg.data, w, h, int(self.inImg.nbytes/h), QImage.Format_Grayscale8) if self.inImg.shape[-1] != 3 else QImage(self.inImg.data, w, h, int(self.inImg.nbytes/h), QImage.Format_RGB888)
         self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
         
         s = SliderWidget(self, self.pos(), self.inImg)
@@ -151,18 +218,17 @@ class ImageProcessing(QMainWindow):
         w = self.outImg.shape[1]
         h = self.outImg.shape[0]
         
-        qImg = QImage(self.outImg.data, w,h, QImage.Format_Grayscale8)
+        qImg = QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_Grayscale8) if self.outImg.shape[-1] != 3 else QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_RGB888)
         self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
         
     def edgeDetection(self):
         w = self.inImg.shape[1]
         h = self.inImg.shape[0]
         
-        if self.viewMode != 2:
-            self.viewMode = 2
-            self.setviewMode(w,h)
-            
-        qImg = QImage(self.inImg.data, w,h, QImage.Format_Grayscale8)
+        if self.viewMode != 2: self.viewMode = 2
+        self.setviewMode(w,h)
+        
+        qImg = QImage(self.inImg.data, w, h, int(self.inImg.nbytes/h), QImage.Format_Grayscale8) if self.inImg.shape[-1] != 3 else QImage(self.inImg.data, w, h, int(self.inImg.nbytes/h), QImage.Format_RGB888)
         self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
         
         d = CheckWidget(self, self.pos())
@@ -210,37 +276,414 @@ class ImageProcessing(QMainWindow):
                 
                 self.outImg[y][x] = temp
                 
-        qImg = QImage(self.outImg.data, w, h, QImage.Format_Grayscale8)
+        qImg = QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_Grayscale8) if self.outImg.shape[-1] != 3 else QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_RGB888)
+        self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
+    
+    def sharpening(self):
+        w = self.inImg.shape[1]
+        h = self.inImg.shape[0]
+        
+        if self.viewMode != 2: self.viewMode = 2
+        self.setviewMode(w,h)
+        
+        qImg = QImage(self.inImg.data, w, h, int(self.inImg.nbytes/h), QImage.Format_Grayscale8) if self.inImg.shape[-1] != 3 else QImage(self.inImg.data, w, h, int(self.inImg.nbytes/h), QImage.Format_RGB888)
+        self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
+        
+        d = SharpeningWidget(self, self.pos())
+        d.command.connect(self.sbClicked)
+    
+    def sbClicked(self, buttonId):
+        mask1 = [[0,-1,0], [-1,5,-1], [0,-1,0]]
+        mask2 = [[-1,-1,-1], [-1,9,-1], [-1,-1,-1]]
+        if buttonId == 0:
+            mask = mask1
+        elif buttonId == 1:
+            mask = mask2
+        else:
+            mask = [[0,0,0],[0,0,0],[0,0,0]]
+            
+        w = self.inImg.shape[1]
+        h = self.inImg.shape[0]
+        self.outImg = np.zeros((h,w), dtype=np.uint8)
+
+        for i in range(h):
+            for j in range(w):
+                if i == 0 or i == h-1 or j == 0 or j == w-1:
+                    self.outImg[i][j] = self.inImg[i][j]
+                else:
+                    temp = np.sum(np.multiply(mask, self.inImg[i-1:i+2, j-1:j+2]))
+                    if temp > 255:
+                        temp = 255
+                    if temp < 0:
+                        temp = 0
+                    
+                    self.outImg[i][j] = temp
+        
+        qImg = QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_Grayscale8) if self.outImg.shape[-1] != 3 else QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_RGB888)
+        self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
+                    
+    
+    def averaging(self):
+        w = self.inImg.shape[1]
+        h = self.inImg.shape[0]
+        
+        if self.viewMode != 2: self.viewMode = 2
+        self.setviewMode(w,h)
+        
+        qImg = QImage(self.inImg.data, w, h, int(self.inImg.nbytes/h), QImage.Format_Grayscale8) if self.inImg.shape[-1] != 3 else QImage(self.inImg.data, w, h, int(self.inImg.nbytes/h), QImage.Format_RGB888)
+        self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
+        
+        d = AveragingWidget(self, self.pos())
+        d.command.connect(self.abClicked)
+    
+    def abClicked(self, buttonId):
+        if buttonId == 0:
+            mask_size = 3
+        elif buttonId == 1:
+            mask_size = 5
+        else:
+            mask_size = 1
+        
+        t = int(mask_size//2)
+        
+        w = self.inImg.shape[1]
+        h = self.inImg.shape[0]
+        
+        self.outImg = np.zeros((h,w), dtype=np.uint8)
+
+        for i in range(h):
+            for j in range(w):
+                if i < t or i >= h-t or j < t or j >= w-t:
+                    self.outImg[i][j] = self.inImg[i][j]
+                else:
+                    temp = np.sum(self.inImg[i-t:i+t+1, j-t:j+t+1]) / (mask_size**2)
+                    self.outImg[i][j] = temp
+        
+        qImg = QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_Grayscale8) if self.outImg.shape[-1] != 3 else QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_RGB888)
         self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
         
     def histogramEqual(self):
         w = self.inImg.shape[1]
         h = self.inImg.shape[0]
             
-        if self.viewMode != 2:
-            self.viewMode = 2
-            self.setviewMode(w,h)
+        if self.viewMode != 2: self.viewMode = 2
+        self.setviewMode(w,h)
+
         self.outImg = self.inImg.copy()
         hist = [0 for i in range(256)]
         acc_hist = 0
-        for j in range(h):
-            for i in range(w):
+        for i in range(h):
+            for j in range(w):
                 k = self.inImg[i][j]
                 hist[k] += 1
         cumulativeSum = []
         for i in range(256):
             acc_hist += hist[i]
             cumulativeSum.append(acc_hist)
-        for j in range(h):
-            for i in range(w):
+        
+        for i in range(h):
+            for j in range(w):
                 k = self.inImg[i][j]
-                self.outImg[i][j] = cumulativeSum[k]/(256*256)*255
+                self.outImg[i][j] = cumulativeSum[k] / (256 * 256) * 255
                 
-        qImg = QImage(self.outImg.data, w,h, QImage.Format_Grayscale8)
+        qImg = QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_Grayscale8) if self.outImg.shape[-1] != 3 else QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_RGB888)
+        self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
+
+
+    def erosion(self, *args,**kargs):
+        viewOutput = kargs["viewOutput"] if "viewOutput" in kargs else True
+        
+        w = self.inImg.shape[1]
+        h = self.inImg.shape[0]
+
+        self.outImg = np.zeros((h,w), dtype=np.uint8)
+        for i in range(h):
+            for j in range(w):
+                if i == 0 or i == h-1 or j == 0 or j == w-1:
+                    self.outImg[i][j] = self.inImg[i][j]
+                else:
+                    temp = self.inImg[i-1:i+2, j-1:j+2]
+                    temp = np.sort(np.ravel(temp, order='C'))
+                    self.outImg[i][j] = temp[0]
+        
+        if viewOutput:
+            qImg = QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_Grayscale8) if self.outImg.shape[-1] != 3 else QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_RGB888)
+            self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
+
+
+    def dilation(self, *args, **kargs):
+        viewOutput = kargs["viewOutput"] if "viewOutput" in kargs else True
+
+        w = self.inImg.shape[1]
+        h = self.inImg.shape[0]
+        
+        self.outImg = np.zeros((h,w), dtype=np.uint8)
+
+        for i in range(h):
+            for j in range(w):
+                if i == 0 or i == h-1 or j == 0 or j == w-1:
+                    self.outImg[i][j] = self.inImg[i][j]
+                else:
+                    temp = self.inImg[i-1:i+2, j-1:j+2]
+                    temp = np.sort(np.ravel(temp, order='C'))
+                    self.outImg[i][j] = temp[-1]
+        if viewOutput:
+            qImg = QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_Grayscale8) if self.outImg.shape[-1] != 3 else QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_RGB888)
+            self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
+
+
+    def CopyResult2Input(self, **kargs):
+        viewInput = kargs["viewInput"] if "viewInput" in kargs else False
+        self.inImg = self.outImg.copy()
+        if viewInput:
+            w, h = self.inImg.shape[1], self.inImg.shape[0]
+            qImg = QImage(self.inImg.data, w, h, int(self.inImg.nbytes/h), QImage.Format_Grayscale8) if self.inImg.shape[-1] != 3 else QImage(self.inImg.data, w, h, int(self.inImg.nbytes/h), QImage.Format_RGB888)
+            self.inImgLabel.setPixmap(QPixmap.fromImage(qImg))
+
+    def opening(self):
+        self.binarization(viewOutput=False)
+
+        self.CopyResult2Input(viewInput=True)
+        self.erosion(viewOutput=False)
+
+        self.CopyResult2Input()
+        self.erosion(viewOutput=False)
+
+        self.CopyResult2Input()
+        self.erosion(viewOutput=False)
+
+        self.CopyResult2Input()
+        self.dilation(viewOutput=False)
+
+        self.CopyResult2Input()
+        self.dilation(viewOutput=False)
+
+        self.CopyResult2Input()
+        self.dilation(viewOutput=True)
+
+        d = DFS(self.outImg)
+        objCount = d.getObjectCount()
+        print(objCount)
+
+    def closing(self):
+        self.binarization(viewOutput=False)
+
+        self.CopyResult2Input(viewInput=True)
+        self.dilation(viewOutput=False)
+
+        self.CopyResult2Input()
+        self.dilation(viewOutput=False)
+
+        self.CopyResult2Input()
+        self.dilation(viewOutput=False)
+
+        self.CopyResult2Input()
+        self.erosion(viewOutput=False)
+
+        self.CopyResult2Input()
+        self.erosion(viewOutput=False)
+
+        self.CopyResult2Input()
+        self.erosion(viewOutput=True)
+
+        d = DFS(self.outImg)
+        objCount = d.getObjectCount()
+        print(objCount)
+
+    def medianFiltering(self):
+        w = self.inImg.shape[1]
+        h = self.inImg.shape[0]
+
+        if self.viewMode != 2: self.viewMode = 2
+        self.setviewMode(w,h)
+
+        self.outImg = np.zeros((h,w), dtype=np.uint8)
+
+        for i in range(h):
+            for j in range(w):
+                if i == 0 or i == h-1 or j == 0 or j == w-1:
+                    self.outImg[i][j] = self.inImg[i][j]
+                else:
+                    temp = self.inImg[i-1:i+2, j-1:j+2]
+                    temp = np.sort(np.ravel(temp, order='C'))
+                    self.outImg[i][j] = temp[4]
+
+        qImg = QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_Grayscale8) if self.outImg.shape[-1] != 3 else QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_RGB888)
+        self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
+    
+    def gaussianFiltering(self):
+        w = self.inImg.shape[1]
+        h = self.inImg.shape[0]
+        if self.viewMode != 2: self.viewMode = 2
+        self.setviewMode(w,h)
+        self.outImg = np.zeros((h,w), dtype=np.uint8)
+
+        gaussianfilter = self.getGaussianfilter(kernel_size = 3, sigma = 1)
+        for i in range(h):
+            for j in range(w):
+                if i == 0 or i == h-1 or j == 0 or j == w-1:
+                    self.outImg[i][j] = self.inImg[i][j]
+                else:
+                    temp = np.sum(np.multiply(gaussianfilter, self.inImg[i-1:i+2, j-1:j+2]))
+                    if temp > 255:
+                        temp = 255
+                    if temp < 0:
+                        temp = 0
+                    self.outImg[i][j] = temp
+        qImg = QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_Grayscale8) if self.outImg.shape[-1] != 3 else QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_RGB888)
+        self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
+
+    def getGaussianfilter(self, *args, **kargs):
+        kernel_size = kargs["kernel_size"] if "kernel_size" in kargs else 3
+        sigma = kargs["sigma"] if "sigma" in kargs else 1
+        array = np.arange((kernel_size // 2) * (-1), (kernel_size // 2) + 1, dtype=np.float32)
+        arr = np.zeros((kernel_size, kernel_size))
+
+        for i in range(kernel_size):
+            for j in range(kernel_size):
+                arr[i, j] = array[i]**2 + array[j]**2
+
+        gaussianFilter = np.zeros((kernel_size, kernel_size))
+
+        for i in range(kernel_size):
+            for j in range(kernel_size):
+                gaussianFilter[i, j] = np.exp(-arr[i, j] / (2 * sigma**2))
+        gaussianFilter /= gaussianFilter.sum()
+
+        return gaussianFilter
+
+    def UpSampling(self, *args, N = 2):
+        w = self.inImg.shape[1]
+        h = self.inImg.shape[0]
+        if len(self.inImg.shape) == 3: c = self.inImg.shape[2]
+        if self.viewMode != 2: self.viewMode = 2
+        self.setviewMode(w * N, h * N)
+        
+        self.outImg = np.zeros((h * N, w * N), dtype=np.uint8) if len(self.inImg.shape) != 3 else np.zeros((h * N, w * N, c), dtype=np.uint8)
+    
+        
+        if len(self.inImg.shape) != 3:
+            for i in range(h):
+                for j in range(w):
+                    self.outImg[N * i:(N * i) + N, N * j:(N * j) + N] = self.inImg[i][j]
+        else:
+            for k in range(c):
+                for i in range(h):
+                    for j in range(w):
+                        self.outImg[N * i:(N * i) + N, N * j:(N * j) + N, k] = self.inImg[i][j][k]
+        
+        # if len(self.inImg.shape) != 3:
+        #     self.inImg = np.pad(self.inImg, ((h//2, h//2), (w//2,w//2)), 'constant', constant_values=50)
+        #     qImg = QImage(self.inImg.data, w * N, h * N, int(self.inImg.nbytes / (h * N)), QImage.Format_Grayscale8) if self.inImg.shape[-1] != 3 else QImage(self.inImg.data, w * N, h * N, int(self.inImg.nbytes / (h * N)), QImage.Format_RGB888)
+        #     self.inImgLabel.setPixmap(QPixmap.fromImage(qImg))
+        qImg = QImage(self.outImg.data, w * N, h * N, int(self.outImg.nbytes / (h * N)), QImage.Format_Grayscale8) if self.outImg.shape[-1] != 3 else QImage(self.outImg.data, w * N, h * N, int(self.outImg.nbytes / (h * N)), QImage.Format_RGB888)
+        self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
+
+    def UpsamplingLerp(self, *args, N = 2, alpha = 0.5, beta = 0.5):
+        w = self.inImg.shape[1]
+        h = self.inImg.shape[0]
+        if len(self.inImg.shape) == 3: c = self.inImg.shape[2]
+        if self.viewMode != 2: self.viewMode = 2
+        self.setviewMode(w * N, h * N)
+
+        self.outImg = np.zeros((h * N, w * N), dtype=np.uint8) if len(self.inImg.shape) != 3 else np.zeros((h * N, w * N, c), dtype=np.uint8)
+    
+        if len(self.inImg.shape) != 3:
+            for i in range(h * N):
+                for j in range(w * N):
+                    x = (j + 0.5) * (1 / N) - 0.5
+                    y = (i + 0.5) * (1 / N) - 0.5
+                    x_int, y_int = min(int(x), w - 2), min(int(y), h - 2)
+
+                    a, b, c, d = self.inImg[y_int, x_int], self.inImg[y_int, x_int+1], self.inImg[y_int + 1, x_int], self.inImg[y_int + 1, x_int + 1]
+                    pixel = a * (1 - alpha) * (1 - beta) + b * (alpha) * (1 - beta) + c * (1 - alpha) * (beta) + d * alpha * beta
+                    self.outImg[i,j] = pixel.astype(np.uint8)
+        else:
+            for k in range(c):
+                for i in range(h * N):
+                    for j in range(w * N):
+                        x = (j + 0.5) * (1 / N) - 0.5
+                        y = (i + 0.5) * (1 / N) - 0.5
+                        x_int, y_int = min(int(x), w - 2), min(int(y), h - 2)
+
+                        a, b, c, d = self.inImg[y_int, x_int, k], self.inImg[y_int, x_int + 1, k], self.inImg[y_int + 1, x_int, k], self.inImg[y_int + 1, x_int + 1, k]
+                        pixel = a * (1 - alpha) * (1 - beta) + b * (alpha) * (1 - beta) + c * (1 - alpha) * (beta) + d * alpha * beta
+                        self.outImg[i,j,k] = pixel.astype(np.uint8)
+
+        # self.inImg = np.pad(self.inImg, ((h//2, h//2), (w//2,w//2)), 'constant', constant_values=50)
+        # qImg = QImage(self.inImg.data, w * N, h * N, int(self.inImg.nbytes / (h * N)), QImage.Format_Grayscale8) if self.inImg.shape[-1] != 3 else QImage(self.inImg.data, w * N, h * N, int(self.inImg.nbytes/ (h * N)), QImage.Format_RGB888)
+        # self.inImgLabel.setPixmap(QPixmap.fromImage(qImg))
+        qImg = QImage(self.outImg.data, w * N, h * N, int(self.outImg.nbytes / (h * N)), QImage.Format_Grayscale8) if self.outImg.shape[-1] != 3 else QImage(self.outImg.data, w * N, h * N, int(self.outImg.nbytes / (h * N)), QImage.Format_RGB888)
+        self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
+
+    def DownSampling(self, *args, N = 2):
+        w = self.inImg.shape[1]
+        h = self.inImg.shape[0]
+        if len(self.inImg.shape) == 3: c = self.inImg.shape[2]
+        if self.viewMode != 2: self.viewMode = 2
+        self.setviewMode(w, h)
+        self.outImg = np.zeros((int(h / N + 0.5), int(w / N + 0.5)), dtype=np.uint8) if len(self.inImg.shape) != 3 else np.zeros((int(h / N + 0.5), int(w / N + 0.5), c), dtype=np.uint8)
+        if len(self.inImg.shape) != 3:
+            for i in range(0, h, 2):
+                for j in range(0, w, 2):
+                    self.outImg[i//2, j//2] = self.inImg[i, j]
+        else:
+            for k in range(c):
+                for i in range(0, h, 2):
+                    for j in range(0, w, 2):
+                        self.outImg[i//2, j//2, k] = self.inImg[i, j, k]
+        
+        ow, oh = self.outImg.shape[1], self.outImg.shape[0]
+        if len(self.inImg.shape) != 3: self.outImg = np.pad(self.outImg, ((oh//2, oh//2), (ow//2,ow//2)), 'constant', constant_values=50)
+        qImg = QImage(self.outImg.data, w, h, int(self.outImg.nbytes / h), QImage.Format_Grayscale8) if self.outImg.shape[-1] != 3 else QImage(self.outImg.data, ow, oh, int(self.outImg.nbytes / oh), QImage.Format_RGB888)
         self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
         
+
+    def Decimation(self, *args, N = 2):
+        w = self.inImg.shape[1]
+        h = self.inImg.shape[0]
+        GRAY = True
+        if len(self.inImg.shape) == 3:
+            c = self.inImg.shape[2]
+            GRAY = False
+        if self.viewMode != 2: self.viewMode = 2
+        self.setviewMode(w, h)
+
+        self.inImg = np.pad(self.inImg, ((1,1), (1,1)), 'constant', constant_values=0)
+        img_LPF = np.zeros((h, w), dtype=np.uint8) if len(self.inImg.shape) != 3 else np.zeros((h, w, c), dtype=np.uint8)
+        self.outImg = np.zeros((h // N, w // N), dtype=np.uint8) if len(self.inImg.shape) != 3 else np.zeros((h // N, w // N, c), dtype=np.uint8)
+
+        if GRAY:    # 1 channal
+            for i in range(1, h):
+                for j in range(1, w):
+                    temp = self.inImg[i-1:i+2, j-1:j+2]
+                    temp = np.sort(np.ravel(temp, order='C'))
+                    img_LPF[i - 1, j - 1] = temp[4]
+            for i in range(0, h, 2):
+                for j in range(0, w, 2):
+                    self.outImg[i//2, j//2] = img_LPF[i, j]
+        else:
+            for k in range(c):
+                for i in range(1, h):
+                    for j in range(1, w):
+                        temp = self.inImg[i-1:i+2, j-1:j+2, k]
+                        temp = np.sort(np.ravel(temp, order='C'))
+                        img_LPF[i - 1, j - 1, k] = temp[4]
+            for k in range(c):
+                for i in range(0, h, 2):
+                    for j in range(0, w, 2):
+                        self.outImg[i//2, j//2, k] = img_LPF[i, j, k]
+
+        self.outImg = np.pad(self.outImg, ((h//4, h//4), (w//4,w//4)), 'constant', constant_values=50)
+        qImg = QImage(self.outImg.data, w, h, int(self.outImg.nbytes / h), QImage.Format_Grayscale8) if self.outImg.shape[-1] != 3 else QImage(self.outImg.data, w, h, int(self.outImg.nbytes / h), QImage.Format_RGB888)
+        self.outImgLabel.setPixmap(QPixmap.fromImage(qImg))
+
+
+
+
     def setviewMode(self, w, h):
-        self.setFixedSize((w + 14) * self.viewMode, h + 44)
+        cw, cy = int(1.1 * w) * self.viewMode, int(1.2 * h)
+        self.setFixedSize(cw, cy)
         if self.viewMode == 2:
             self.inImg2 = 0
             self.inImgLabel2.setPixmap(QPixmap())
@@ -249,97 +692,68 @@ class ImageProcessing(QMainWindow):
         fname = QFileDialog.getOpenFileName(self, 'Select the First Image', './', "BMP files (*.bmp);; PGM files (*.pgm);; JPG files(*.jpg);; All files(*.*)")
         return fname
     
-    def read_pgm(self, file):
-        with open(file, 'rb') as pgmf:
-            pgm_type =  pgmf.readline()
-            
-            if pgm_type ==  b'P5\n':
-                len_data = 1
-            elif pgm_type ==  b'P2\n':
-                pgmf.readline()
-                len_data = 4
-            else:
-                raise TypeError()
-
-            (width, height) = [int(i) for i in pgmf.readline().split()]
-            depth = int(pgmf.readline())
-            assert depth <= 255
-
-            raster = []
-            for y in range(height):
-                row = []
-                for y in range(width):
-                    raw_dot = pgmf.read(len_data)
-                    dot = ord(raw_dot) if pgm_type == b'P5\n' else int(raw_dot)
-                    row.append(dot)
-                raster.append(row)
-        return np.array(raster, dtype=np.uint8)
-
-
-
-    def fileopen(self, file_name):
+    def pgm_processing(self, file_name):
+        b_type = True
+        file_type = file_name.split('.')[-1]
         with open(file_name, 'rb') as f:
-            file_type = file_name.split('.')[-1]
             if file_type == 'pgm' or file_type == 'PGM':
-                pgm_type = f.readlines()
-                for i, line in enumerate(pgm_type):
-                    if i < 3:
-                        print(line)
-                    else:
-                        print(type(line))
-                        exit()
-
+                b_type = f.readline() == b"P5\n"
                 wh_line = f.readline().decode('utf-8').split()
                 while wh_line[0] == '#':
                     wh_line = f.readline().split()
                 (img_width, img_height) = [int(i) for i in wh_line]
-                print('width: {}, height: {}'.format(img_width, img_height))
+                # print('width: {}, height: {}'.format(img_width, img_height))
                 max_value = f.readline()
                 while max_value[0] == '#':
                     max_value = f.readline()
                 max_value = int(max_value)
-                print('PGM type: {}'.format(pgm_type.decode('utf-8')))
-                if pgm_type == b'P5\n':
+                # print('PGM type: {}'.format(b_type.decode('utf-8')))
+                if b_type:  # P5 (Binary)
                     img_depth = 1
-                else:
-                    img_depth = 3
+                else:       # P2 (ASCII)
+                    img_depth = 4
             
             elif file_type == 'raw' or file_type == 'RAW':
-                raw_data = f.readline()
-                assert len(bytearray(raw_data)) != 256*256, "Only 256 * 256 image"
+                raw_data = f.read()
+                print(len(raw_data))
+                assert len(raw_data) == 256*256
+                f.seek(0)
                 img_width, img_height, img_depth = 256, 256, 1
+
             col = []
-            for i in range(img_height):
+            for _ in range(img_height):
                 row = []
-                for j in range(img_width):
-                    row.append(list(f.readline(1 * img_depth)))
+                for _ in range(img_width):
+                    tmp = f.read(1 * img_depth)
+                    dot = ord(tmp) if b_type else int(tmp)  # b_type == True -> P5 Binary
+                    row.append(dot)
                 col.append(row)
-            
-            result = np.array(col)
-            print(result.shape)
-            # result = np.array(result).squeeze(-1).transpose(1,2,0)
+            result = np.array(col, dtype=np.uint8)
+            # print(result.shape)
         return result
     
     def add2Images(self):
         self.viewMode = 3
         fname = self.loadFile()
-        im = Image.open(fname[0])
-        if fname[0].split(".")[-1] in ['pgm', 'ppm', 'PGM', 'PPM']: im = im.resize((256,256))
+        im = self.pgm_processing(fname[0]) if fname[0].split('.')[-1] in ['pgm', 'ppm', 'raw', 'PGM', 'PPM', 'RAW'] else Image.open(fname[0])
+        self.inImg = im if isinstance(im, np.ndarray) else np.array(im, dtype=np.uint8)
 
-        self.inImg = np.array(im)
         w = self.inImg.shape[1]
         h = self.inImg.shape[0]
+        # print(w, h)
+
         self.setviewMode(w,h)
-        qImg = QImage(self.inImg.data, w, h, QImage.Format_Grayscale8)
+        qImg = QImage(self.inImg.data, w, h, int(self.inImg.nbytes/h), QImage.Format_Grayscale8) if self.inImg.shape[-1] != 3 else QImage(self.inImg.data, w, h, int(self.inImg.nbytes/h), QImage.Format_RGB888)
         self.inImgLabel.setPixmap(QPixmap.fromImage(qImg))
         
         fname2 = self.loadFile()
-        im2 = Image.open(fname2[0])
-        if w != im2.size[0] or h != im2.size[1]:
-            im2 = im2.resize((w,h))
-        self.inImg2 = np.array(im2)
+        im2 = self.pgm_processing(fname2[0]) if fname2[0].split('.')[-1] in ['pgm', 'ppm', 'raw', 'PGM', 'PPM', 'RAW'] else Image.open(fname2[0])
+        self.inImg2 = im2 if isinstance(im2, np.ndarray) else np.array(im2, dtype=np.uint8)
         
-        qImg2 = QImage(self.inImg2.data, w, h, QImage.Format_Grayscale8)
+        if self.inImg.shape != self.inImg2.shape: 
+            self.inImg2 = nn_interpolate(self.inImg2, self.inImg.shape)
+        
+        qImg2 = QImage(self.inImg2.data, w, h, int(self.inImg2.nbytes / h), QImage.Format_Grayscale8) if self.inImg2.shape[-1] != 3 else QImage(self.inImg2.data, w, h, int(self.inImg2.nbytes / h), QImage.Format_RGB888)
         self.inImgLabel2.setPixmap(QPixmap.fromImage(qImg2))
         self.outImg = self.inImg.copy()
         
@@ -349,41 +763,45 @@ class ImageProcessing(QMainWindow):
                 val = int((alpha * self.inImg[j][i]) + (beta * self.inImg2[j][i]))
                 self.outImg[j][i] = 255 if val > 255 else val
                 
-        qImg3 = QImage(self.outImg.data, w, h, QImage.Format_Grayscale8)
+        qImg3 = QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_Grayscale8) if self.outImg.shape[-1] != 3 else QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_RGB888)
         self.outImgLabel.setPixmap(QPixmap.fromImage(qImg3))
         
     def sub2Images(self):
         self.viewMode = 3
         fname = self.loadFile()
-        im = Image.open(fname[0])
-        if fname[0].split(".")[-1] in ['pgm', 'ppm', 'PGM', 'PPM']: im = im.resize((256,256))
+        im = self.pgm_processing(fname[0]) if fname[0].split('.')[-1] in ['pgm', 'ppm', 'raw', 'PGM', 'PPM', 'RAW'] else Image.open(fname[0])
+        self.inImg = im if isinstance(im, np.ndarray) else np.array(im, dtype=np.uint8)
 
-        self.inImg = np.array(im)
         w = self.inImg.shape[1]
         h = self.inImg.shape[0]
+        
         self.setviewMode(w,h)
-        qImg = QImage(self.inImg.data, w, h, QImage.Format_Grayscale8)
+        qImg = QImage(self.inImg.data, w, h, int(self.inImg.nbytes/h), QImage.Format_Grayscale8) if self.inImg.shape[-1] != 3 else QImage(self.inImg.data, w, h, int(self.inImg.nbytes/h), QImage.Format_RGB888)
         self.inImgLabel.setPixmap(QPixmap.fromImage(qImg))
         
         fname2 = self.loadFile()
-        im2 = Image.open(fname2[0])
-        if w != im2.size[0] or h != im2.size[1]:
-            im2 = im2.resize((w,h))
-        self.inImg2 = np.array(im2)
+        im2 = self.pgm_processing(fname2[0]) if fname2[0].split('.')[-1] in ['pgm', 'ppm', 'raw', 'PGM', 'PPM', 'RAW'] else Image.open(fname2[0])
+        self.inImg2 = im2 if isinstance(im2, np.ndarray) else np.array(im2, dtype=np.uint8)
         
-        qImg2 = QImage(self.inImg2.data, w, h, QImage.Format_Grayscale8)
+        if self.inImg.shape != self.inImg2.shape: 
+            self.inImg2 = nn_interpolate(self.inImg2, self.inImg.shape)
+        
+        qImg2 = QImage(self.inImg2.data, w, h, int(self.inImg2.nbytes / h), QImage.Format_Grayscale8) if self.inImg2.shape[-1] != 3 else QImage(self.inImg2.data, w, h, int(self.inImg2.nbytes / h), QImage.Format_RGB888)
         self.inImgLabel2.setPixmap(QPixmap.fromImage(qImg2))
         self.outImg = self.inImg.copy()
-        
-        print(self.inImg.shape, self.inImg2.shape)
-
+        # import matplotlib.pyplot as plt
+        # plt.imshow(self.outImg)
+        # plt.show()
         alpha, beta = 1, 1
         for j in range(h):
             for i in range(w):
                 val = int((alpha * self.inImg[j][i]) - (beta * self.inImg2[j][i]))
                 self.outImg[j][i] = 0 if val < 0 else val
-                
-        qImg3 = QImage(self.outImg.data, w, h, QImage.Format_Grayscale8)
+        # print(self.inImg.shape, self.inImg2.shape, self.outImg.shape)
+        # plt.imshow(self.outImg)
+        # plt.show()
+        
+        qImg3 = QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_Grayscale8) if self.outImg.shape[-1] != 3 else QImage(self.outImg.data, w, h, int(self.outImg.nbytes/h), QImage.Format_RGB888)
         self.outImgLabel.setPixmap(QPixmap.fromImage(qImg3))
         
 if __name__ == '__main__':

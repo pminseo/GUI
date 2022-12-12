@@ -22,8 +22,12 @@ class DFS():
             return
         if self.img[x][y] == 255:
             self.visited[x][y] = True
-            self.dfs(x-1, y)
-            self.dfs(x+1, y)
-            self.dfs(x, y-1)
-            self.dfs(x, y+1)
+            self.dfs(x-1, y+1)  # 1:30
+            self.dfs(x, y+1)    # 3
+            self.dfs(x+1, y+1)  # 4:30
+            self.dfs(x+1, y)    # 6
+            self.dfs(x+1, y-1)  # 7:30
+            self.dfs(x, y-1)    # 9
+            self.dfs(x-1, y-1)  # 10:30
+            self.dfs(x-1, y)    # 12
 
